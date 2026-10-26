@@ -1,0 +1,9 @@
+fn main() {
+  []: items;
+  items->append(10);
+  items->append(20);
+  items->append("Daniel");
+  items->append(30);
+
+  print(items);
+}

@@ -1,0 +1,33 @@
+name1 = "daniel";
+name2 = "jack";
+name3 = "oliver";
+name4 = "humza";
+name5 = "orger";
+name6 = 0;
+name7 = name1; 
+
+print(name1);
+print(name2);
+print(name3);
+print(name4);
+print(name5);
+print(name6);
+print(name7);
+
+[]: items;
+items->append(name1);
+items->append(name2);
+items->append(name3);
+items->append(name4);
+items->append(name5);
+items->append(name6);
+items->append(name7);
+
+print(items);
+
+items->pop();
+items->pop();
+items->pop();
+
+print(items);
+

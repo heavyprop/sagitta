@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# build output
+/sagitta
+*.o
+build/
+
+# old binaries from before the rename
+/interpreter
+/interpreter_file
+/test
+/testing
+
+# editors
+.vscode/
+.idea/
