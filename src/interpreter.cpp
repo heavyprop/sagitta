@@ -77,6 +77,12 @@ void Interpreter::run(const std::string& input) {
         tokens[0].type == TokenType::Identifier &&
         tokens[1].type == TokenType::Equal) {
         AssignmentStatement statement = parser.parseAssignment();
+
+        if (statement.value.type == TokenType::Identifier && environment.arrayExists(statement.value.value)) {
+            environment.copyArray(statement.name, statement.value.value);
+            return;
+        }
+
         std::shared_ptr<Object> value;
 
         // create the value object depending on the type of token

@@ -23,7 +23,15 @@ private:
     std::unordered_map<std::string, std::shared_ptr<Object>> variables;
     std::unordered_map<std::string, List*> arrays;
 
+    void removeArray(const std::string& name);
+
 public:
+    Environment() = default;
+
+    /// copying is disabled since would delete the same list twice
+    Environment(const Environment&) = delete;
+    Environment& operator=(const Environment&) = delete;
+
     /// creates or replaces a binding with shared ownership of the object
     void setVariable(const std::string& name, std::shared_ptr<Object> value);
 
@@ -37,6 +45,9 @@ public:
 
     /// returns a borrowed pointer, or nullptr if absent.
     List* getArray(const std::string& name);
+
+    /// makes target a copy of source, creating target if it doesn't exist
+    void copyArray(const std::string& target, const std::string& source);
 
     /// returns the list, or nullptr if it does not exist
     bool arrayExists(const std::string& name);
