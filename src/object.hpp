@@ -16,6 +16,10 @@ class Object {
 public:
     // prints the value to std::cout
     virtual void print() const = 0;
+
+    // returns a new copy of the object, the caller owns it
+    virtual Object* clone() const = 0;
+
     // virtual so deleting through an Object* also destroys the derived object
     virtual ~Object() = default;
 };
@@ -28,6 +32,8 @@ public:
     IntObject(int v);
 
     void print() const override;
+
+    Object* clone() const override;
 };
 
 // stores a string value, e.g. "Daniel"
@@ -38,6 +44,8 @@ public:
     StringObject(const std::string& v);
 
     void print() const override;
+
+    Object* clone() const override;
 };
 
 // stores a floating point value, e.g. 30.3
@@ -48,4 +56,6 @@ public:
     FloatObject(double v);
 
     void print() const override;
+
+    Object* clone() const override;
 };

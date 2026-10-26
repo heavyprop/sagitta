@@ -17,14 +17,18 @@
  */
 class List {
 private:
-    Object** data;
-    std::size_t size;
-    std::size_t capacity;
+    Object** data_;
+    std::size_t size_;
+    std::size_t capacity_;
 
     void grow();
 
 public:
     List();
+
+    // copies are deep, each list gets its own objects so nothing is shared
+    List(const List& other);
+    List& operator=(const List& other);
 
     // parameter overloading, depending on type
     void append(int value);

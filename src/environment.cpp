@@ -35,6 +35,10 @@ void Environment::createArray(const std::string& name) {
         throw std::runtime_error("Array already exists: " + name);
     }
 
+    if (variableExists(name)) {
+        throw std::runtime_error("Variable with this name already exists: " + name);
+    }
+
     // unordered map storing name of array with the a pointer to list
     arrays[name] = new List();
 }

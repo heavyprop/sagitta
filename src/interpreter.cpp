@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "ast.hpp"
@@ -18,6 +19,28 @@
  * tokenizes the input, works out the type of statement from the first tokens,
  * parses it, then updates or reads from the environment.
  */
+
+/**
+ * @brief Converts the text of a Number token into an int
+ *
+ * std::stoi throws std::out_of_range with the message "stoi",
+ * so it is caught here and replaced with a clearer error
+ *
+ * @param text The digits of the number, e.g. "10" or "-5"
+ * @return The number as an int
+ * @throws std::runtime_error If the number does not fit in an int
+ */
+static int toInt(const std::string& text) {
+    try {
+        return std::stoi(text);
+    }
+    catch (const std::out_of_range&) {
+        throw std::runtime_error("Number out of range: " + text);
+    }
+    catch (const std::invalid_argument&) {
+        throw std::runtime_error("Invalid number: " + text);
+    }
+}
 
 /**
  * @brief The statement types are checked in this order:
@@ -60,7 +83,7 @@ void Interpreter::run(const std::string& input) {
         switch (statement.value.type) {
             case TokenType::Number:
                 value = std::make_shared<IntObject>(
-                    std::stoi(statement.value.value)
+                    toInt(statement.value.value)
                 );
                 break;
 
@@ -125,14 +148,12 @@ void Interpreter::run(const std::string& input) {
         List* array = environment.getArray(call.objectName);
 
         if (array == nullptr) {
-            std::cout << "Array does not exist\n";
-            return;
+            throw std::runtime_error("Array does not exist: " + call.objectName);
         }
 
         if (call.methodName == "append") {
             if (!call.argument) {
-                std::cout << "->append expects one argument\n";
-                return;
+                throw std::runtime_error("->append expects one argument");
             }
 
             // string literal, e.g. items->append("Daniel");
@@ -142,7 +163,7 @@ void Interpreter::run(const std::string& input) {
 
             // number literal, e.g. items->append(10);
             else if (call.argument->type == TokenType::Number) {
-                array->append(std::stoi(call.argument->value));
+                array->append(toInt(call.argument->value));
             }
 
             // variable, e.g. items->append(name);
@@ -168,22 +189,21 @@ void Interpreter::run(const std::string& input) {
             }
 
             else {
-                std::cout << "Invalid append value\n";
+                throw std::runtime_error("Invalid append value");
             }
         }
 
         // removes the last item in the list
         else if (call.methodName == "pop") {
             if (call.argument) {
-                std::cout << "pop expects no arguments\n";
-                return;
+                throw std::runtime_error("->pop expects no arguments");
             }
 
             array->pop();
         }
 
         else {
-            std::cout << "Unknown method\n";
+            throw std::runtime_error("Unknown method: " + call.methodName);
         }
     }
 
