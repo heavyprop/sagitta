@@ -1,55 +1,172 @@
 #pragma once
 
-#include <optional>
+#include <algorithm>
+#include <cstddef>
+#include <memory>
 #include <string>
+#include <vector>
 
-#include "token.hpp"
-
-/**
-* @file ast.hpp
-* @details Defines the structs that the parser uses to store the values
-* interpreter uses this to fetch the value when execting the instruction
-*/
+#include "object.hpp"
 
 /**
- * @brief This is the struct that is used for assignment statements
+ * @file ast.hpp
+ * @brief Defines the nodes of the syntax tree that the parser builds
  *
- * stores variable name
- * stores the value defined as token in "token.hpp"
+ * expressions are things that have a value e.g. 10,
+ * statements are something that do something
+ *
+ * the interpreter walks the tree using the visitor pattern
+ * each node has accept(), which calls the matching visit method on the visitor
  */
-struct AssignmentStatement {
-    std::string name;
-    Token value;
+
+struct NumberExpr;
+struct StringExpr;
+struct VariableExpr;
+struct UnaryExpr;
+struct BinaryExpr;
+
+struct AssignmentStatement;
+struct PrintStatement;
+struct ArrayDeclerationStatement;
+struct MethodCallStatement;
+
+// one visit method for each kind of expression, each returns the value of it
+// used so that the logic can be left for the interpreter
+// a node's accept() calls its matching visit function
+class ExpressionVisitor {
+ public:
+  virtual ~ExpressionVisitor() = default;
+
+  virtual std::shared_ptr<Object> visitNumber(const NumberExpr& expr) = 0;
+  virtual std::shared_ptr<Object> visitString(const StringExpr& expr) = 0;
+  virtual std::shared_ptr<Object> visitVariable(const VariableExpr& expr) = 0;
+  virtual std::shared_ptr<Object> visitUnary(const UnaryExpr& expr) = 0;
+  virtual std::shared_ptr<Object> visitBinary(const BinaryExpr& expr) = 0;
 };
 
-/**
- * @brief This is the struct that is used for print statements
- *
- * stores only the variable name
- */
-struct PrintStatement {
-    std::string variableName;
+class StatementVisitor {
+ public:
+  virtual ~StatementVisitor() = default;
+
+  virtual void visitAssign(const AssignmentStatement& statement) = 0;
+  virtual void visitPrint(const PrintStatement& statement) = 0;
+  virtual void visitArrayDecleration(
+      const ArrayDeclerationStatement& statement) = 0;
+  virtual void visitMethodCall(const MethodCallStatement& statement) = 0;
 };
 
-/**
- * @brief This is the struct that is used for declaring an array
- *
- * stores only the variable name
- */
-struct ArrayDecleration {
-    std::string name;
-};
+// Expressions
 
 /**
- * @details Struct for when the user wants to call a method on an object
- * Examples: ->pop(), ->append();
+ * @brief Base for every expression
  *
- * stoes the name of the object we want to use the method on
- * stores the name of the method
- * stores the ->(argument), which is optional, some methods don't require one
+ * stores where the expression starts, so errors can point at it
  */
-struct MethodCall {
-    std::string objectName;
-    std::string methodName;
-    std::optional<Token> argument; ///c++17 feature, represents a value that might not exist
+struct Expr {
+  std::size_t line = 1;
+  std::size_t column = 1;
+
+  virtual ~Expr() = default;
+
+  virtual std::shared_ptr<Object> accept(ExpressionVisitor& visitor) const = 0;
+};
+
+// a whole number
+struct NumberExpr : Expr {
+  int value = 0;
+
+  std::shared_ptr<Object> accept(ExpressionVisitor& visitor) const override {
+    return visitor.visitNumber(*this);
+  }
+};
+
+// text in double quotes
+struct StringExpr : Expr {
+  std::string value;
+
+  std::shared_ptr<Object> accept(ExpressionVisitor& visitor) const override {
+    return visitor.visitString(*this);
+  }
+};
+
+// the name of the variable or list
+struct VariableExpr : Expr {
+  std::string name;
+
+  std::shared_ptr<Object> accept(ExpressionVisitor& visitor) const override {
+    return visitor.visitVariable(*this);
+  }
+};
+
+struct UnaryExpr : Expr {
+  char op = '-';
+  // e.g. operand can be int(5) or (5 + 3)
+  std::unique_ptr<Expr> operand;
+
+  std::shared_ptr<Object> accept(ExpressionVisitor& visitor) const override {
+    return visitor.visitUnary(*this);
+  }
+};
+
+// operator between 2 values
+// for 1 + 2 * 3 the right itself is a binary expr for 2 * 3
+struct BinaryExpr : Expr {
+  char op = '+';
+  std::unique_ptr<Expr> left;
+  std::unique_ptr<Expr> right;
+
+  std::shared_ptr<Object> accept(ExpressionVisitor& visitor) const override {
+    return visitor.visitBinary(*this);
+  }
+};
+
+// statements
+
+/**
+ * @brief Base for every statement
+ *
+ * stores where the statement starts, so errors can point to it
+ */
+struct Statement {
+  std::size_t line = 1;
+  std::size_t column = 1;
+
+  virtual ~Statement() = default;
+
+  virtual void accept(StatementVisitor& visitor) const = 0;
+};
+
+struct AssignmentStatement : Statement {
+  std::string name;
+  std::unique_ptr<Expr> value;
+
+  void accept(StatementVisitor& visitor) const override {
+    visitor.visitAssign(*this);
+  }
+};
+
+struct PrintStatement : Statement {
+  std::unique_ptr<Expr> value;
+
+  void accept(StatementVisitor& visitor) const override {
+    visitor.visitPrint(*this);
+  }
+};
+
+struct ArrayDeclerationStatement : Statement {
+  std::string name;
+
+  void accept(StatementVisitor& visitor) const override {
+    visitor.visitArrayDecleration(*this);
+  }
+};
+
+struct MethodCallStatement : Statement {
+  std::string objectName;
+  std::string methodName;
+  std::unique_ptr<Expr> argument;
+
+  void accept(StatementVisitor& visitor) const override {
+    visitor.visitMethodCall(*this);
+  }
 };

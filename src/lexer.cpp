@@ -3,250 +3,212 @@
 #include <cctype>
 #include <stdexcept>
 
+#include "error.hpp"
+
 /**
  * @file lexer.cpp
- * @brief Implements the tokenization of source text.
- *
- * Recognizes integers, strings, identifiers and Fn keyword,
- * punctuation, and the -> operator. White space is skipped.
- * Reports unterminated strings and unexpected characters.
+ * @brief Implements the tokenization of the source text
  */
 
 Lexer::Lexer(const std::string& input) : source_(input) {}
 
 char Lexer::current() const {
-    if (position_ >= source_.size()) {
-        return '\0';
-    }
+  if (position_ >= source_.size()) {
+    return '\0';
+  }
 
-    // string indexing
-    return source_[position_];
+  // string indexing
+  return source_[position_];
 }
 
-// looks one character ahead without moving, used for '->' and negative numbers
+// looks one character ahead without moving
 char Lexer::peek() const {
-    if (position_ + 1 >= source_.size()) {
-        return '\0';
-    }
-
-    return source_[position_ + 1];
+  if (position_ + 1 >= source_.size()) {
+    return '\0';
+  }
+  return source_[position_ + 1];
 }
 
 void Lexer::advance() {
-    // never moves past the end, so current() keeps returning '\0'
-    if (position_ < source_.size()) {
-        ++position_;
+  if (position_ < source_.size()) {
+    // a new line resets the column back to the start
+    if (source_[position_] == '\n') {
+      ++line_;
+      column_ = 1;
+    } else {
+      ++column_;
     }
+    ++position_;
+  }
 }
 
 void Lexer::skipWhiteSpace() {
-    // <cctype> requires an unsigned char value or EOF
-    // on apple: isspace uses the bitmapped flag for each character
-    while (std::isspace(static_cast<unsigned char>(current()))) {
-        advance();
-    }
+  // <cctype> requires an unsigned char value or EOF
+  // fun fact: on apple the isspace uses the bitmapped flag for each character
+  while (std::isspace(static_cast<unsigned char>(current()))) {
+    advance();
+  }
 }
 
 /**
- * @brief number can have a '-' prefixed
+ * @brief only reads the digits, -5 is reads as minus then 5
  */
 Token Lexer::readNumber() {
-    std::string value{};
+  std::string value{};
 
-    if (current() == '-') {
-        value += current();
-        advance();
-    }
+  while (std::isdigit(static_cast<unsigned char>(current()))) {
+    value += current();
+    advance();
+  }
 
-    // dealing with digits still as 'chars'
-    while (std::isdigit(static_cast<unsigned char>(current()))) {
-        value += current();
-        advance();
-    }
-
-    return {
-        TokenType::Number,
-        value
-    };
+  return {TokenType::Number, value};
 }
 
 /**
- * @brief identifiers start with a letter or _, then can contain letters, digits and _
- * 'fn' is reserved as a keyword
+ * @brief identifies start with a letter or _, then can contain letters, digits
+ * and _ 'fn' is keyword
  */
 Token Lexer::readIdentifier() {
-    std::string value{};
+  std::string value{};
 
-    // if alpanumeric, or _ for snake case
-    while (std::isalnum(static_cast<unsigned char>(current())) || current() == '_') {
-        value += current();
-        advance();
-    }
+  // if alphanumeric or _ for snake case
+  while (std::isalnum(static_cast<unsigned char>(current())) ||
+         current() == '_') {
+    value += current();
+    advance();
+  }
 
-    // check if the word is a keyword before treating it as a name
-    if (value == "fn") {
-        return {
-            TokenType::Fn,
-            value
-        };
-    }
+  if (value == "fn") {
+    return {TokenType::Fn, value};
+  }
 
-    return {
-        TokenType::Identifier,
-        value
-    };
+  return {TokenType::Identifier, value};
 }
 
 /**
- * @brief strings are wrapped in double quotes, e.g. "Daniel"
- * @throws std::runtime_error If the source ends before the closing quote
+ * @brief strings are wrapped in double quotes
+ * @throws SyntaxError if the source ends before the closing quotes
  */
 Token Lexer::readString() {
-    std::string value{};
+  std::string str{};
 
-    // Skip the opening quote.
+  // remember where the line stated so an error can point
+  // the line_ and column_ will change but we need to remember this point
+  auto startLine = line_;
+  auto startColumn = column_;
+
+  // skip opening quote
+  advance();
+
+  // loop until close quote or end of file
+  while (current() != '"' && current() != '\0') {
+    str += current();
     advance();
+  }
 
-    // loop until close quote or EndOfFile
-    while (current() != '"' && current() != '\0') {
-        value += current();
-        advance();
-    }
+  if (current() == '\0') {
+    throw SyntaxError("Unterminated string", startLine, startColumn);
+  }
 
-    if (current() == '\0') {
-        throw std::runtime_error("Unterminated string");
-    }
+  // skip the closing quote
+  advance();
 
-    // skip the closing quote
-    advance();
-
-    return {
-        TokenType::String,
-        value
-    };
+  return {TokenType::String, str};
 }
 
 /**
- * @brief single character symbols, '->' is handled in nextToken() since it is two characters
- * @throws std::runtime_error If the character is not a recognised symbol
+ * @throws SyntaxError if the character is not recognised symbol
  */
 Token Lexer::readSymbol() {
-    char c = current();
-    advance();
+  char c = current();
+  auto line = line_;
+  auto column = column_;
+  advance();
 
-    switch (c) {
-        case '(':
-            return {
-                TokenType::LeftParen,
-                "("
-            };
-
-        case ')':
-            return {
-                TokenType::RightParen,
-                ")"
-            };
-
-        case '{':
-            return {
-                TokenType::LeftBrace,
-                "{"
-            };
-
-        case '}':
-            return {
-                TokenType::RightBrace,
-                "}"
-            };
-
-        case '[':
-            return {
-                TokenType::LeftBracket,
-                "["
-            };
-
-        case ']':
-            return {
-                TokenType::RightBracket,
-                "]"
-            };
-
-        case ':':
-            return {
-                TokenType::Colon,
-                ":"
-            };
-
-        case ';':
-            return {
-                TokenType::SemiColon,
-                ";"
-            };
-
-        case ',':
-            return {
-                TokenType::Comma,
-                ","
-            };
-
-        case '=':
-            return {
-                TokenType::Equal,
-                "="
-            };
-
-        default:
-            throw std::runtime_error(
-                std::string("Unexpected character: ") + c
-            );
-    }
+  switch (c) {
+    case '(':
+      return {TokenType::LeftParen, "("};
+    case ')':
+      return {TokenType::RightParen, ")"};
+    case '{':
+      return {TokenType::LeftBrace, "{"};
+    case '}':
+      return {TokenType::RightBrace, "}"};
+    case '[':
+      return {TokenType::LeftBracket, "["};
+    case ']':
+      return {TokenType::RightBracket, "]"};
+    case ':':
+      return {TokenType::Colon, ":"};
+    case ';':
+      return {TokenType::SemiColon, ";"};
+    case ',':
+      return {TokenType::Comma, ","};
+    case '=':
+      return {TokenType::Equal, "="};
+    case '+':
+      return {TokenType::Plus, "+"};
+    // '->' is checked before in read token so can only be a minus
+    case '-':
+      return {TokenType::Minus, "-"};
+    case '*':
+      return {TokenType::Star, "*"};
+    case '/':
+      return {TokenType::Slash, "/"};
+    default:
+      throw SyntaxError(std::string("Unexpected character: ") + c, line,
+                        column);
+  }
 }
 
 /**
  * @brief checks the current character and calls the matching read method
  */
+Token Lexer::readToken() {
+  char c = current();
+
+  // if reached the end of souce
+  if (c == '\0') {
+    return {TokenType::EndOfFile, ""};
+  }
+
+  // if the current char is a digit, then use the readNumber() method
+  if (std::isdigit(static_cast<unsigned char>(c))) {
+    return readNumber();
+  }
+
+  // if current char is alpanumeric, then use the readIdentifier() method
+  if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
+    return readIdentifier();
+  }
+
+  // if current char is quote, then use the readString() method
+  if (c == '"') {
+    return readString();
+  }
+
+  // if current and current + 1 char is -> then return the token ->
+  if (c == '-' && peek() == '>') {
+    advance();
+    advance();
+
+    return {TokenType::Arrow, "->"};
+  }
+
+  // no previous token rule is matched, so try reading symbol
+  // read symbol throws an exception if the character is invalid
+  return readSymbol();
+}
+
 Token Lexer::nextToken() {
-    skipWhiteSpace();
+  skipWhiteSpace();
 
-    char c = current();
+  auto line = line_;
+  auto column = column_;
 
-    // reached the end of the source
-    if (c == '\0') {
-        return {
-            TokenType::EndOfFile,
-            ""
-        };
-    }
+  Token token = readToken();
+  token.line = line;
+  token.column = column;
 
-    // if current char is digit, then use the readNumber() method
-    if (std::isdigit(static_cast<unsigned char>(c)) ||
-        (c == '-' && std::isdigit(static_cast<unsigned char>(peek())))) {
-        return readNumber();
-    }
-
-    // if current char is alphanumeric, then use the readIdentifier() method
-    if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
-        return readIdentifier();
-    }
-
-    // if current char is quote, then use the readString() method
-    if (c == '"') {
-        return readString();
-    }
-
-    // if current and current + 1 char is -> then return the token ->
-    if (c == '-' && peek() == '>') {
-        advance();
-        advance();
-
-        return {
-            TokenType::Arrow,
-            "->"
-        };
-    }
-
-    // no previous token rule matched, so try reading a symbol
-    // readSymbol() throws an exception if the character is invalid.
-    return readSymbol();
-
+  return token;
 }

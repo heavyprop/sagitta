@@ -1,220 +1,237 @@
 #include "interpreter.hpp"
 
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
-#include <string>
 #include <vector>
 
 #include "ast.hpp"
+#include "error.hpp"
 #include "lexer.hpp"
-#include "parser.hpp"
+#include "lists.hpp"
 #include "object.hpp"
+#include "parser.hpp"
 #include "token.hpp"
 
 /**
  * @file interpreter.cpp
- * @brief Implements running a single statement
- *
- * tokenizes the input, works out the type of statement from the first tokens,
- * parses it, then updates or reads from the environment.
+ * @brief Implements running the syntax tree
  */
 
-/**
- * @brief Converts the text of a Number token into an int
- *
- * std::stoi throws std::out_of_range with the message "stoi",
- * so it is caught here and replaced with a clearer error
- *
- * @param text The digits of the number, e.g. "10" or "-5"
- * @return The number as an int
- * @throws std::runtime_error If the number does not fit in an int
- */
-static int toInt(const std::string& text) {
+void Interpreter::run(const std::string& source) {
+  Lexer lexer(source);
+  std::vector<Token> tokens;
+
+  // read every token in the source, EndOfFile token is kept
+  // parser will use that as end
+  while (true) {
+    Token token = lexer.nextToken();
+    tokens.push_back(token);
+
+    if (token.type == TokenType::EndOfFile) {
+      break;
+    }
+  }
+
+  Parser parser(tokens);
+  std::vector<std::unique_ptr<Statement>> root = parser.parseBlock();
+
+  for (const auto& statement : root) {
     try {
-        return std::stoi(text);
+      statement->accept(*this);
     }
-    catch (const std::out_of_range&) {
-        throw std::runtime_error("Number out of range: " + text);
+    // for catching our own error type
+    catch (const CodeError&) {
+      throw;
     }
-    catch (const std::invalid_argument&) {
-        throw std::runtime_error("Invalid number: " + text);
+    // for catching the errors without positions: from environment, or std
+    // library
+    catch (const std::exception& error) {
+      throw RuntimeError(error.what(), statement->line, statement->column);
     }
+  }
 }
 
-/**
- * @brief The statement types are checked in this order:
- *
- * assignment:    'a = 10;'
- * print:         'print(a);'
- * array:         '[]: items;'
- * method call:   'items->append(10);'
- */
-void Interpreter::run(const std::string& input) {
-    Lexer lexer(input);
-    std::vector<Token> tokens;
+std::shared_ptr<Object> Interpreter::evaluate(const Expr& expression) {
+  return expression.accept(*this);
+}
 
-    // read every token in the input, the EndOfFile token is kept
-    // so the parser knows where the statement ends
-    while (true) {
-        Token token = lexer.nextToken();
-        tokens.push_back(token);
+// expressions
 
-        if (token.type == TokenType::EndOfFile) {
-            break;
-        }
+std::shared_ptr<Object> Interpreter::visitNumber(const NumberExpr& expr) {
+  return std::make_shared<IntObject>(expr.value);
+}
+
+std::shared_ptr<Object> Interpreter::visitString(const StringExpr& expr) {
+  return std::make_shared<StringObject>(expr.value);
+}
+
+std::shared_ptr<Object> Interpreter::visitVariable(const VariableExpr& expr) {
+  if (auto value = environment.getVariable(expr.name)) {
+    return value;
+  } else {
+    throw RuntimeError("Name does not exist: " + expr.name, expr.line,
+                       expr.column);
+  }
+}
+
+// the maths is done in a long long which is big enough for 2 ints
+// ints are asymmetrics so this check needs to be done, floats are symmetric
+// expr passed for errors
+static std::shared_ptr<Object> makeCheckedIntObject(long long result,
+                                                    const Expr& expr) {
+  if (result < std::numeric_limits<int>::min() ||
+      result > std::numeric_limits<int>::max()) {
+    throw RuntimeError("Integer overflow, the result doesn't fit into an int",
+                       expr.line, expr.column);
+  }
+  return std::make_shared<IntObject>(static_cast<int>(result));
+}
+
+// expr has:
+// op (-)
+// operand (5)
+std::shared_ptr<Object> Interpreter::visitUnary(const UnaryExpr& expr) {
+  // evaluate the operand first, e.g. -(-1), evaluate the (-1) first
+  // the operand can be another unary expression, so it recurses
+  auto value = evaluate(*expr.operand);
+
+  // then apply the operator to the result -(result)
+  switch (expr.op) {
+    case '-': {
+      if (auto integer = std::dynamic_pointer_cast<IntObject>(value)) {
+        return makeCheckedIntObject(-static_cast<long long>(integer->value()),
+                                    expr);
+      }
+
+      if (auto floating = std::dynamic_pointer_cast<FloatObject>(value)) {
+        return std::make_shared<FloatObject>(-floating->value());
+      }
+
+      throw RuntimeError("Can't use - on a " + value->typeName(), expr.line,
+                         expr.column);
+    }
+    // the parser only creates '-', so reaching here is a bug in the interpreter
+    default:
+      throw std::logic_error(std::string("Internal error: unknown operator ") +
+                             expr.op);
+  }
+}
+
+std::shared_ptr<Object> Interpreter::visitBinary(const BinaryExpr& expr) {
+  auto left = evaluate(*expr.left);
+  auto right = evaluate(*expr.right);
+
+  // "a" + "b" joins the 2 strings
+  auto leftText = dynamic_cast<const StringObject*>(left.get());
+  auto rightText = dynamic_cast<const StringObject*>(right.get());
+
+  if (expr.op == '+' && leftText && rightText) {
+    return std::make_shared<StringObject>(leftText->value() +
+                                          rightText->value());
+  }
+
+  if (!left->isNumber() || !right->isNumber()) {
+    throw RuntimeError(std::string("Can't use ") + expr.op + " on " +
+                           left->typeName() + " and " + right->typeName(),
+                       expr.line, expr.column);
+  }
+
+  if (expr.op == '/' && right->toDouble() == 0) {
+    throw RuntimeError("Division by zero", expr.line, expr.column);
+  }
+
+  auto leftInt = dynamic_cast<const IntObject*>(left.get());
+  auto rightInt = dynamic_cast<const IntObject*>(right.get());
+
+  // if two ints give an int, except / which always gives a float
+  if (leftInt && rightInt && expr.op != '/') {
+    long long a = leftInt->value();
+    long long b = rightInt->value();
+
+    switch (expr.op) {
+      case '+':
+        return makeCheckedIntObject(a + b, expr);
+      case '-':
+        return makeCheckedIntObject(a - b, expr);
+      default:
+        return makeCheckedIntObject(a * b, expr);
+    }
+  }
+
+  // working in floats for division
+  // or if one is already a float
+  double a = left->toDouble();
+  double b = right->toDouble();
+
+  switch (expr.op) {
+    case '+':
+      return std::make_shared<FloatObject>(a + b);
+    case '-':
+      return std::make_shared<FloatObject>(a - b);
+    case '*':
+      return std::make_shared<FloatObject>(a * b);
+    case '/':
+      return std::make_shared<FloatObject>(a / b);
+    default:
+      throw std::logic_error(std::string("Internal error: unknown operator ") +
+                             expr.op);
+  }
+}
+
+void Interpreter::visitAssign(const AssignmentStatement& statement) {
+  auto value = evaluate(*statement.value);
+  environment.setVariable(statement.name,
+                          std::shared_ptr<Object>(value->clone()));
+}
+
+void Interpreter::visitPrint(const PrintStatement& statement) {
+  auto value = evaluate(*statement.value);
+  value->print();
+  std::cout << '\n';
+}
+
+void Interpreter::visitArrayDecleration(
+    const ArrayDeclerationStatement& statement) {
+  environment.setVariable(statement.name, std::make_shared<ListObject>());
+}
+
+void Interpreter::visitMethodCall(const MethodCallStatement& statement) {
+  auto value = environment.getVariable(statement.objectName);
+  if (value == nullptr) {
+    throw RuntimeError("Name does not exist: " + statement.objectName,
+                       statement.line, statement.column);
+  }
+
+  // methods only exists for lists
+  if (auto listObject = std::dynamic_pointer_cast<ListObject>(value)) {
+    List& list = listObject->list();
+
+    if (statement.methodName == "append") {
+      if (!statement.argument) {
+        throw RuntimeError("->append expects one argument", statement.line,
+                           statement.column);
+      }
+      // lists owns the items, so we need to clone the value
+      list.append(evaluate(*statement.argument)->clone());
     }
 
-    // nothing to run, e.g. a line with only white space
-    if (tokens[0].type == TokenType::EndOfFile) {
-        return;
+    else if (statement.methodName == "pop") {
+      if (statement.argument) {
+        throw RuntimeError("->pop expects no arguments", statement.line,
+                           statement.column);
+      }
+      list.pop();
     }
 
-    Parser parser(tokens);
-
-    // first assignment and reassignment use the same path
-    if (tokens.size() > 1 &&
-        tokens[0].type == TokenType::Identifier &&
-        tokens[1].type == TokenType::Equal) {
-        AssignmentStatement statement = parser.parseAssignment();
-
-        if (statement.value.type == TokenType::Identifier && environment.arrayExists(statement.value.value)) {
-            environment.copyArray(statement.name, statement.value.value);
-            return;
-        }
-
-        std::shared_ptr<Object> value;
-
-        // create the value object depending on the type of token
-        switch (statement.value.type) {
-            case TokenType::Number:
-                value = std::make_shared<IntObject>(
-                    toInt(statement.value.value)
-                );
-                break;
-
-            case TokenType::String:
-                value = std::make_shared<StringObject>(statement.value.value);
-                break;
-
-            // copies the shared pointer, so both variables point to the same object
-            case TokenType::Identifier:
-                value = environment.getVariable(statement.value.value);
-                break;
-
-            default:
-                throw std::runtime_error("Invalid assignment value");
-        }
-
-        // creates the variable, or replaces it if it already exists
-        environment.setVariable(statement.name, value);
-    }
-
-    // print a variable or list
-    else if (tokens[0].type == TokenType::Identifier &&
-             tokens[0].value == "print") {
-        PrintStatement statement = parser.parsePrintStatement();
-
-        if (environment.variableExists(statement.variableName)) {
-            auto value = environment.getVariable(statement.variableName);
-
-            // strings are printed without quotes here,
-            // StringObject::print() adds quotes for when it is inside a list
-            if (auto text = std::dynamic_pointer_cast<StringObject>(value)) {
-                std::cout << text->value;
-            }
-            else {
-                value->print();
-            }
-
-            std::cout << '\n';
-
-            return;
-        }
-
-        // not a variable, so check if it is a list
-        List* array = environment.getArray(statement.variableName);
-
-        if (array == nullptr) {
-            throw std::runtime_error("Name does not exist: " + statement.variableName);
-        }
-
-        array->display();
-    }
-
-    // declare a new list, e.g. '[]: items;'
-    else if (tokens[0].type == TokenType::LeftBracket) {
-        ArrayDecleration declaration = parser.parseArrayDecleration();
-        environment.createArray(declaration.name);
-    }
-
-    // call a method on a list, e.g. 'items->append(10);' or 'items->pop();'
-    else if (tokens[0].type == TokenType::Identifier) {
-        MethodCall call = parser.parseMethodCall();
-        List* array = environment.getArray(call.objectName);
-
-        if (array == nullptr) {
-            throw std::runtime_error("Array does not exist: " + call.objectName);
-        }
-
-        if (call.methodName == "append") {
-            if (!call.argument) {
-                throw std::runtime_error("->append expects one argument");
-            }
-
-            // string literal, e.g. items->append("Daniel");
-            if (call.argument->type == TokenType::String) {
-                array->append(call.argument->value);
-            }
-
-            // number literal, e.g. items->append(10);
-            else if (call.argument->type == TokenType::Number) {
-                array->append(toInt(call.argument->value));
-            }
-
-            // variable, e.g. items->append(name);
-            // the list stores its own copy of the value, not the variable itself
-            else if (call.argument->type == TokenType::Identifier) {
-                auto value = environment.getVariable(call.argument->value);
-
-                // check the actual type of the object, nullptr is returned if the cast fails
-                if (auto integer = std::dynamic_pointer_cast<IntObject>(value)) {
-                    array->append(integer->value);
-                }
-
-                else if (auto text = std::dynamic_pointer_cast<StringObject>(value)) {
-                    array->append(text->value);
-                }
-
-                else if (auto floating = std::dynamic_pointer_cast<FloatObject>(value)) {
-                    array->append(floating->value);
-                }
-                else {
-                    throw std::runtime_error("Unsupported variable type for append");
-                }
-            }
-
-            else {
-                throw std::runtime_error("Invalid append value");
-            }
-        }
-
-        // removes the last item in the list
-        else if (call.methodName == "pop") {
-            if (call.argument) {
-                throw std::runtime_error("->pop expects no arguments");
-            }
-
-            array->pop();
-        }
-
-        else {
-            throw std::runtime_error("Unknown method: " + call.methodName);
-        }
-    }
-
-    // no statement rule matched
     else {
-        throw std::runtime_error("Unknown statement");
+      throw RuntimeError("Unknown method: " + statement.methodName,
+                         statement.line, statement.column);
     }
+  } else {
+    throw RuntimeError(
+        statement.objectName + " is a " + value->typeName() + ", not a list",
+        statement.line, statement.column);
+  }
 }

@@ -10,52 +10,69 @@
 /**
  * @brief Base class for every value in the language
  *
- * derived classes override print(), so a value can be printed without knowing its type
+ * derived classes override print(), so a value can be printed without knowing
+ * its type
  */
 class Object {
-public:
-    // prints the value to std::cout
-    virtual void print() const = 0;
+ public:
+  // prints the value to std::cout
+  virtual void print() const = 0;
 
-    // returns a new copy of the object, the caller owns it
-    virtual Object* clone() const = 0;
+  // returns a new copy of the object
+  virtual Object* clone() const = 0;
 
-    // virtual so deleting through an Object* also destroys the derived object
-    virtual ~Object() = default;
+  // to name the type during an error message
+  virtual std::string typeName() const = 0;
+
+  // string inherits this
+  virtual bool isNumber() const { return false; }
+
+  // string inherits this
+  virtual double toDouble() const;
+
+  // virtual so deleting through an Object* also destroys the derived object
+  virtual ~Object() = default;
 };
 
 // stores an integer value, e.g. 10
 class IntObject : public Object {
-public:
-    int value;
+ private:
+  int value_{};
 
-    IntObject(int v);
-
-    void print() const override;
-
-    Object* clone() const override;
+ public:
+  explicit IntObject(int value);
+  int value() const;
+  void print() const override;
+  Object* clone() const override;
+  std::string typeName() const override;
+  bool isNumber() const override;
+  double toDouble() const override;
 };
 
 // stores a string value, e.g. "Daniel"
 class StringObject : public Object {
-public:
-    std::string value;
+ private:
+  std::string value_{};
 
-    StringObject(const std::string& v);
-
-    void print() const override;
-
-    Object* clone() const override;
+ public:
+  explicit StringObject(const std::string& value);
+  std::string value() const;
+  void print() const override;
+  std::string typeName() const override;
+  Object* clone() const override;
 };
 
 // stores a floating point value, e.g. 30.3
 class FloatObject : public Object {
-public:
-    double value;
+ private:
+  double value_{};
 
-    FloatObject(double v);
-
-    void print() const override;
-
-    Object* clone() const override;
+ public:
+  explicit FloatObject(double value);
+  double value() const;
+  void print() const override;
+  std::string typeName() const override;
+  bool isNumber() const override;
+  double toDouble() const override;
+  Object* clone() const override;
 };
