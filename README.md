@@ -1,7 +1,12 @@
 ```
 brew install heavyprop/sagitta/sagitta
 brew test sagitta
-sagitta test.sgt #naming convention.sgt
+
+// to run
+sagitta
+
+// to run file
+sagitta [file_name].sgt 
 ```
 ## Example to run:
 ``` cpp
