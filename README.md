@@ -9,7 +9,7 @@ sagitta
 sagitta [file_name].sgt 
 ```
 ## Example to run:
-``` cpp
+``` py
 # this file contains a demo
 name = "Sagitta";
 []: demo;
