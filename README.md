@@ -10,6 +10,7 @@ sagitta [file_name].sgt
 ```
 ## Example to run:
 ``` cpp
+# this file contains a demo
 name = "Sagitta";
 []: demo;
 demo->append("Hello from " + name);
