@@ -32,6 +32,9 @@ enum class TokenType {
   SemiColon,
   Comma,
 
+  // comments
+  Hashtag,
+
   Equal,
   Arrow,
 

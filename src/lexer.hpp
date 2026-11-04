@@ -44,6 +44,9 @@ class Lexer {
   // works out which kind of token is next and reads it
   Token readToken();
 
+  // for reading comments, just ignore everything until \n
+  void readComment(); 
+
  public:
   /**
    * @param input Source text to tokenize

@@ -116,6 +116,14 @@ Token Lexer::readString() {
   return {TokenType::String, str};
 }
 
+void Lexer::readComment() {
+   while (current() != '\n' && current() != '\0') {
+       advance();
+   }
+   return;
+}
+
+
 /**
  * @throws SyntaxError if the character is not recognised symbol
  */
@@ -171,7 +179,7 @@ Token Lexer::readToken() {
   if (c == '\0') {
     return {TokenType::EndOfFile, ""};
   }
-
+ 
   // if the current char is a digit, then use the readNumber() method
   if (std::isdigit(static_cast<unsigned char>(c))) {
     return readNumber();
@@ -202,6 +210,11 @@ Token Lexer::readToken() {
 
 Token Lexer::nextToken() {
   skipWhiteSpace();
+
+  while (current() == '#') {
+      readComment();
+      skipWhiteSpace();
+  }
 
   auto line = line_;
   auto column = column_;
